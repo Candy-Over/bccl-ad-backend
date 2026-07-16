@@ -3,7 +3,8 @@ import { Readable } from "stream";
 import csv from "csv-parser";
 import { count } from "drizzle-orm";
 import { db } from "../db/db.js";
-import { csvData } from "../db/schema.js";
+import { csvData } from "../db/schema/index.js";
+// import { csvData } from "../db/schema.js";
 
 const detectSeparator = (buffer: Buffer): string => {
   let firstLine = "";
