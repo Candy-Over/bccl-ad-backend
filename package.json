@@ -1,0 +1,36 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development tsx watch ./src/app.ts",
+    "build": "tsc -d",
+    "start": "cross-env NODE_ENV=production node ./dist/app.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "cross-env NODE_ENV=development drizzle-kit migrate",
+    "db:migrate-prod": "cross-env NODE_ENV=production drizzle-kit migrate"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@types/express": "^5.0.6",
+    "cors": "^2.8.6",
+    "cross-env": "^10.1.0",
+    "csv-parser": "^3.2.1",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "express": "^5.2.1",
+    "multer": "^2.2.0",
+    "mysql2": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/multer": "^2.2.0",
+    "@types/node": "^26.1.1",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2"
+  }
+}
