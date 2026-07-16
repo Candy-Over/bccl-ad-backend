@@ -1,10 +1,123 @@
 import type { Request, Response } from "express";
 import { Readable } from "stream";
 import csv from "csv-parser";
-import { count } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { db } from "../db/db.js";
-import { csvData } from "../db/schema/index.js";
-// import { csvData } from "../db/schema.js";
+import { pageDiffDetail, pageDiffSummary } from "../db/schema/index.js";
+
+// Maps a normalized CSV header to the pageDiffSummary field it fills.
+const SUMMARY_FIELDS: Record<string, string> = {
+  prprodid: "prProdId",
+  prprodname: "prProdName",
+  prproddump: "prProdDump",
+  dumpdate: "dumpDate",
+  pageid: "pageId",
+  pagename: "pageName",
+  pageno: "pageNo",
+  ppid: "ppId",
+  ppname: "ppName",
+  difffreearea: "diffFreeArea",
+  diffelements: "diffElements",
+  makeupflag: "makeUpFlag",
+};
+
+// Maps a normalized CSV header to the pageDiffDetail field it fills.
+const DETAIL_FIELDS: Record<string, string> = {
+  dumptime: "dumpTime",
+  newplace: "newPlace",
+  deletedisplace: "deleteDisplace",
+  changeposition: "changePosition",
+  changegeometry: "changeGeometry",
+  changenamematerial: "changeNameMaterial",
+};
+
+const NUMERIC_SUMMARY_FIELDS = new Set([
+  "prProdId",
+  "prProdDump",
+  "pageId",
+  "pageNo",
+  "ppId",
+  "diffFreeArea",
+  "diffElements",
+  "makeUpFlag",
+]);
+
+const BOOLEAN_DETAIL_FIELDS = new Set([
+  "newPlace",
+  "deleteDisplace",
+  "changePosition",
+  "changeGeometry",
+  "changeNameMaterial",
+]);
+
+const normalizeKey = (header: string): string =>
+  header.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+// "20260715" -> "2026-07-15"
+const toIsoDate = (raw: string): string =>
+  /^\d{8}$/.test(raw) ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}` : raw;
+
+// "231445" -> "23:14:45"
+const toHmsTime = (raw: string): string =>
+  /^\d{6}$/.test(raw) ? `${raw.slice(0, 2)}:${raw.slice(2, 4)}:${raw.slice(4, 6)}` : raw;
+
+type MappedRow = {
+  summary: Record<string, any>;
+  detail: Record<string, any>;
+  hasElement: boolean;
+};
+
+// The CSV's "Element" column packs a code and a name together, e.g.
+// "27107797_1 INSTITUTE FOR DESIGN OF ELECTR" -> code "27107797_1", name "INSTITUTE FOR DESIGN OF ELECTR".
+const splitElement = (raw: string): { elementCode: string; elementName: string } => {
+  const spaceIdx = raw.indexOf(" ");
+  return spaceIdx === -1
+    ? { elementCode: raw, elementName: "" }
+    : { elementCode: raw.slice(0, spaceIdx), elementName: raw.slice(spaceIdx + 1).trim() };
+};
+
+const mapRow = (row: Record<string, string>): MappedRow => {
+  const summary: Record<string, any> = {};
+  const detail: Record<string, any> = {};
+  let elementRaw = "";
+
+  for (const [header, rawValue] of Object.entries(row)) {
+    const key = normalizeKey(header);
+    const value = (rawValue ?? "").trim();
+
+    if (key === "element") {
+      elementRaw = value;
+      continue;
+    }
+
+    const summaryField = SUMMARY_FIELDS[key];
+    if (summaryField) {
+      summary[summaryField] = NUMERIC_SUMMARY_FIELDS.has(summaryField)
+        ? parseInt(value, 10) || 0
+        : value;
+      continue;
+    }
+
+    const detailField = DETAIL_FIELDS[key];
+    if (detailField) {
+      detail[detailField] = BOOLEAN_DETAIL_FIELDS.has(detailField) ? value === "1" : value;
+    }
+  }
+
+  if (typeof summary.dumpDate === "string") {
+    summary.dumpDate = toIsoDate(summary.dumpDate);
+  }
+  if (typeof detail.dumpTime === "string") {
+    detail.dumpTime = toHmsTime(detail.dumpTime);
+  }
+
+  const hasElement = elementRaw.length > 0;
+  if (hasElement) {
+    Object.assign(detail, splitElement(elementRaw));
+  }
+
+  return { summary, detail, hasElement };
+};
 
 const detectSeparator = (buffer: Buffer): string => {
   let firstLine = "";
@@ -35,47 +148,18 @@ const uploadCsv = async (req: Request, res: Response): Promise<any> => {
       return res.status(400).json({ error: "No file uploaded or invalid file type" });
     }
 
-    const results: any[] = [];
-    let isFirstRow = true;
+    const rows: Array<{ summary: Record<string, any>; detail: Record<string, any> }> = [];
 
     const separator = detectSeparator(req.file.buffer);
     const stream = Readable.from(req.file.buffer);
 
     await new Promise<void>((resolve, reject) => {
       stream
-        .pipe(csv({ headers: false, separator }))
+        .pipe(csv({ separator }))
         .on("data", (row) => {
-          const values = Object.values(row) as string[];
-
-          if (isFirstRow) {
-            isFirstRow = false;
-            // Detect header: check if any cell matches common header identifiers
-            const isHeader = values.some(
-              (val) =>
-                val &&
-                (val.toLowerCase() === "id" ||
-                  val.toLowerCase().startsWith("column") ||
-                  val.toLowerCase().includes("header") ||
-                  val.toLowerCase().includes("name") ||
-                  val.toLowerCase().match(/^c\d+$/))
-            );
-            if (isHeader) {
-              return; // Skip the header row
-            }
-          }
-
-          results.push({
-            c1: values[0] || null,
-            c2: values[1] || null,
-            c3: values[2] || null,
-            c4: values[3] || null,
-            c5: values[4] || null,
-            c6: values[5] || null,
-            c7: values[6] || null,
-            c8: values[7] || null,
-            c9: values[8] || null,
-            c10: values[9] || null,
-          });
+          const { summary, detail, hasElement } = mapRow(row as Record<string, string>);
+          if (!hasElement) return; // no element to store on this row
+          rows.push({ summary, detail });
         })
         .on("end", () => {
           resolve();
@@ -85,20 +169,68 @@ const uploadCsv = async (req: Request, res: Response): Promise<any> => {
         });
     });
 
-    if (results.length === 0) {
+    if (rows.length === 0) {
       return res.status(400).json({ error: "CSV file is empty or contains no valid rows" });
     }
 
-    // Batch insert into MySQL
+    // Group rows into one pageDiffSummary parent per (prProdId, dumpDate, pageId),
+    // collecting each row's element as a pageDiffDetail child.
+    const groups = new Map<string, { summary: Record<string, any>; details: Record<string, any>[] }>();
+    for (const { summary, detail } of rows) {
+      const key = `${summary.prProdId}|${summary.dumpDate}|${summary.pageId}`;
+      const group = groups.get(key);
+      if (group) {
+        group.details.push(detail);
+      } else {
+        groups.set(key, { summary, details: [detail] });
+      }
+    }
+
     const BATCH_SIZE = 1000;
-    for (let i = 0; i < results.length; i += BATCH_SIZE) {
-      const batch = results.slice(i, i + BATCH_SIZE);
-      await db.insert(csvData).values(batch);
+    let summariesProcessed = 0;
+    let detailsInserted = 0;
+
+    for (const { summary, details } of groups.values()) {
+      const [existing] = await db
+        .select({ id: pageDiffSummary.id })
+        .from(pageDiffSummary)
+        .where(
+          and(
+            eq(pageDiffSummary.prProdId, summary.prProdId),
+            eq(pageDiffSummary.dumpDate, summary.dumpDate),
+            eq(pageDiffSummary.pageId, summary.pageId)
+          )
+        );
+
+      let summaryId: number;
+      if (existing) {
+        summaryId = existing.id;
+        // Re-uploading the same summary must refresh its mutable fields (e.g. diffFreeArea,
+        // diffElements, makeUpFlag) — reusing the id alone left them stuck at their first value.
+        await db
+          .update(pageDiffSummary)
+          .set(summary as any)
+          .where(eq(pageDiffSummary.id, summaryId));
+        // Re-uploading the same summary also replaces its details instead of duplicating them.
+        await db.delete(pageDiffDetail).where(eq(pageDiffDetail.summaryId, summaryId));
+      } else {
+        const [insertResult] = await db.insert(pageDiffSummary).values(summary as any);
+        summaryId = insertResult.insertId;
+      }
+      summariesProcessed++;
+
+      const detailRows = details.map((detail) => ({ ...detail, summaryId }));
+      for (let i = 0; i < detailRows.length; i += BATCH_SIZE) {
+        const batch = detailRows.slice(i, i + BATCH_SIZE);
+        await db.insert(pageDiffDetail).values(batch as any);
+        detailsInserted += batch.length;
+      }
     }
 
     return res.status(200).json({
       message: "CSV parsed and data saved to database successfully",
-      rowsUploaded: results.length,
+      summariesProcessed,
+      detailsInserted,
     });
   } catch (err) {
     console.error("Error in uploadCsv:", err);
@@ -120,15 +252,15 @@ const getCsvData = async (req: Request, res: Response): Promise<any> => {
 
     const offset = (page - 1) * limit;
 
-    // Get paginated rows
+    // Get paginated summary rows
     const data = await db
       .select()
-      .from(csvData)
+      .from(pageDiffSummary)
       .limit(limit)
       .offset(offset);
 
     // Get total count
-    const [countResult] = await db.select({ value: count() }).from(csvData);
+    const [countResult] = await db.select({ value: count() }).from(pageDiffSummary);
     const total = countResult?.value || 0;
 
     return res.status(200).json({
