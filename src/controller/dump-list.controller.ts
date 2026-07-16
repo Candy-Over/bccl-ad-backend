@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { and, count, eq, asc, like } from "drizzle-orm";
+import { and, count, eq, asc, desc, like } from "drizzle-orm";
 import { db } from "../db/db.js";
 import { pageDiffDetail, pageDiffSummary } from "../db/schema/index.js";
 
@@ -23,7 +23,7 @@ const getPageDiffSummery = async (
 
     // Only filter on whichever of these query params were actually given.
     const conditions = [];
-    if (cap) conditions.push(eq(pageDiffSummary.cap, cap as string));
+    if (cap) conditions.push(like(pageDiffSummary.cap, `%${cap}%`));
     if (date) conditions.push(eq(pageDiffSummary.dumpDate, date as string));
     if (time) conditions.push(eq(pageDiffSummary.dumpTime, time as string));
     if (pageName) conditions.push(like(pageDiffSummary.pageName, `%${pageName}%` as string));
@@ -38,6 +38,7 @@ const getPageDiffSummery = async (
       .select()
       .from(pageDiffSummary)
       .where(whereClause)
+      .orderBy(desc(pageDiffSummary.createdAt))
       .limit(limit)
       .offset(offset);
 
