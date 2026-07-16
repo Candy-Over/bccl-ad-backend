@@ -6,6 +6,7 @@ dotenv.config({
 import express, { type Request, type Response } from "express";
 import csvRouter from "./routes/csv.route.js";
 import globalErrorHandler from "./utils/globalErrorHandler.js";
+import dumpList from "./routes/dum-list.route.js";
 
 const app = express();
 const PORT = process.env.PORT || 8000
@@ -13,7 +14,10 @@ const PORT = process.env.PORT || 8000
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// csv upload
 app.use('/csv', csvRouter)
+// dump-list
+app.use('/dump-list', dumpList)
 // health check endpoint 
 app.get("/", (req: Request, res: Response) => {
     return res.status(200).json({ msg: "Hello world" })

@@ -20,7 +20,7 @@ export const pageDiffSummary = mysqlTable(
     mp: varchar("mp", { length: 50 }).notNull(),
     prProdDump: int("prprod_dump").notNull(),
 
-    dumpDate: date("dump_date").notNull(),
+    dumpDate: date("dump_date", { mode: "string" }).notNull(),
     dumpTime: time("dump_time").notNull(),
 
     pageId: int("page_id").notNull(),

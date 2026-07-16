@@ -33,19 +33,6 @@ const upload = multer({
 });
 
 // Route to handle CSV upload with inline error handling for multer
-// csvRouter.post(
-//   "/upload",
-//   (req, res, next) => {
-//     upload.single("file")(req, res, (err) => {
-//       if (err) {
-//         return res.status(400).json({ error: err.message });
-//       }
-//       next();
-//     });
-//   },
-//   uploadCsv
-// );
-
 csvRouter.post(
   "/upload",
   upload.single("file"),
@@ -57,10 +44,5 @@ csvRouter.post(
   upload.single("file"),
   uploadEditionMaster
 );
-
-
-
-// Route to get paginated CSV data
-csvRouter.get("/", getCsvData);
 
 export default csvRouter;
