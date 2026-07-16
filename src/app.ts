@@ -7,6 +7,7 @@ import express, { type Request, type Response } from "express";
 import csvRouter from "./routes/csv.route.js";
 import globalErrorHandler from "./utils/globalErrorHandler.js";
 import dumpList from "./routes/dum-list.route.js";
+import editionMaster from "./routes/edition-master.route.js";
 
 const app = express();
 const PORT = process.env.PORT || 8000
@@ -18,6 +19,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/csv', csvRouter)
 // dump-list
 app.use('/dump-list', dumpList)
+// edition master
+app.use("/edition-master", editionMaster);
+
 // health check endpoint 
 app.get("/", (req: Request, res: Response) => {
     return res.status(200).json({ msg: "Hello world" })
