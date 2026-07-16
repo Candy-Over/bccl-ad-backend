@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "339eea6e-5634-4fb4-8631-eeeb1e8f84be",
+  "id": "902f72d5-7a3e-434b-b7ef-5319b26d0e49",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "csv_data": {
@@ -90,6 +90,65 @@
       "compositePrimaryKeys": {
         "csv_data_id": {
           "name": "csv_data_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "edition_master": {
+      "name": "edition_master",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "object": {
+          "name": "object",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "edition": {
+          "name": "edition",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "edition_long_name": {
+          "name": "edition_long_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "city": {
+          "name": "city",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "publication": {
+          "name": "publication",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "edition_master_id": {
+          "name": "edition_master_id",
           "columns": [
             "id"
           ]
@@ -239,8 +298,15 @@
           "notNull": true,
           "autoincrement": false
         },
-        "prprod_name": {
-          "name": "prprod_name",
+        "cap": {
+          "name": "cap",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mp": {
+          "name": "mp",
           "type": "varchar(50)",
           "primaryKey": false,
           "notNull": true,
@@ -256,6 +322,13 @@
         "dump_date": {
           "name": "dump_date",
           "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "dump_time": {
+          "name": "dump_time",
+          "type": "time",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -333,7 +406,8 @@
           "name": "page_diff_summary_search_idx",
           "columns": [
             "dump_date",
-            "prprod_name",
+            "dump_time",
+            "cap",
             "page_id"
           ],
           "isUnique": false
@@ -343,6 +417,7 @@
           "columns": [
             "prprod_id",
             "dump_date",
+            "dump_time",
             "page_id"
           ],
           "isUnique": true

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import path from "path";
-import { uploadCsv, getCsvData } from "../controller/csv.controller.js";
+import { uploadCsv, getCsvData, uploadEditionMaster } from "../controller/csv.controller.js";
 
 const csvRouter = Router();
 
@@ -50,6 +50,12 @@ csvRouter.post(
   "/upload",
   upload.single("file"),
   uploadCsv
+);
+
+csvRouter.post(
+  "/edition-master",
+  upload.single("file"),
+  uploadEditionMaster
 );
 
 

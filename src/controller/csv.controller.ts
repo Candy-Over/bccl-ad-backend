@@ -3,12 +3,12 @@ import { Readable } from "stream";
 import csv from "csv-parser";
 import { and, count, eq } from "drizzle-orm";
 import { db } from "../db/db.js";
-import { pageDiffDetail, pageDiffSummary } from "../db/schema/index.js";
+import { editionMaster, pageDiffDetail, pageDiffSummary } from "../db/schema/index.js";
 
 // Maps a normalized CSV header to the pageDiffSummary field it fills.
+// "PrProd Name" (e.g. "TOIM/MP") is handled separately below since it's split into cap + mp.
 const SUMMARY_FIELDS: Record<string, string> = {
   prprodid: "prProdId",
-  prprodname: "prProdName",
   prproddump: "prProdDump",
   dumpdate: "dumpDate",
   pageid: "pageId",
@@ -22,13 +22,22 @@ const SUMMARY_FIELDS: Record<string, string> = {
 };
 
 // Maps a normalized CSV header to the pageDiffDetail field it fills.
+// "Dump Time" is handled separately below since it's stored on both the summary and the detail.
 const DETAIL_FIELDS: Record<string, string> = {
-  dumptime: "dumpTime",
   newplace: "newPlace",
   deletedisplace: "deleteDisplace",
   changeposition: "changePosition",
   changegeometry: "changeGeometry",
   changenamematerial: "changeNameMaterial",
+};
+
+// Maps a normalized CSV header to the editionMaster field it fills.
+const EDITION_MASTER_FIELDS: Record<string, string> = {
+  object: "object",
+  edition: "edition",
+  editionlongname: "editionLongName",
+  city: "city",
+  publication: "publication",
 };
 
 const NUMERIC_SUMMARY_FIELDS = new Set([
@@ -76,10 +85,20 @@ const splitElement = (raw: string): { elementCode: string; elementName: string }
     : { elementCode: raw.slice(0, spaceIdx), elementName: raw.slice(spaceIdx + 1).trim() };
 };
 
+// The CSV's "PrProd Name" column packs cap and mp together, e.g. "TOIM/MP" -> cap "TOIM", mp "MP".
+const splitCapMp = (raw: string): { cap: string; mp: string } => {
+  const slashIdx = raw.indexOf("/");
+  return slashIdx === -1
+    ? { cap: raw, mp: "" }
+    : { cap: raw.slice(0, slashIdx), mp: raw.slice(slashIdx + 1).trim() };
+};
+
 const mapRow = (row: Record<string, string>): MappedRow => {
   const summary: Record<string, any> = {};
   const detail: Record<string, any> = {};
   let elementRaw = "";
+  let dumpTimeRaw = "";
+  let prProdNameRaw = "";
 
   for (const [header, rawValue] of Object.entries(row)) {
     const key = normalizeKey(header);
@@ -87,6 +106,16 @@ const mapRow = (row: Record<string, string>): MappedRow => {
 
     if (key === "element") {
       elementRaw = value;
+      continue;
+    }
+
+    if (key === "dumptime") {
+      dumpTimeRaw = value;
+      continue;
+    }
+
+    if (key === "prprodname") {
+      prProdNameRaw = value;
       continue;
     }
 
@@ -107,8 +136,17 @@ const mapRow = (row: Record<string, string>): MappedRow => {
   if (typeof summary.dumpDate === "string") {
     summary.dumpDate = toIsoDate(summary.dumpDate);
   }
-  if (typeof detail.dumpTime === "string") {
-    detail.dumpTime = toHmsTime(detail.dumpTime);
+
+  if (prProdNameRaw) {
+    Object.assign(summary, splitCapMp(prProdNameRaw));
+  }
+
+  // A page/dump can be uploaded multiple times a day at different dump times, each producing
+  // its own summary row — so dumpTime is part of both the summary and its detail rows.
+  if (dumpTimeRaw) {
+    const dumpTime = toHmsTime(dumpTimeRaw);
+    summary.dumpTime = dumpTime;
+    detail.dumpTime = dumpTime;
   }
 
   const hasElement = elementRaw.length > 0;
@@ -117,6 +155,22 @@ const mapRow = (row: Record<string, string>): MappedRow => {
   }
 
   return { summary, detail, hasElement };
+};
+
+const mapEditionMasterRow = (row: Record<string, string>): Record<string, any> => {
+  const edition: Record<string, any> = {};
+
+  for (const [header, rawValue] of Object.entries(row)) {
+    const key = normalizeKey(header);
+    const value = (rawValue ?? "").trim();
+
+    const field = EDITION_MASTER_FIELDS[key];
+    if (field) {
+      edition[field] = value || null;
+    }
+  }
+
+  return edition;
 };
 
 const detectSeparator = (buffer: Buffer): string => {
@@ -173,11 +227,11 @@ const uploadCsv = async (req: Request, res: Response): Promise<any> => {
       return res.status(400).json({ error: "CSV file is empty or contains no valid rows" });
     }
 
-    // Group rows into one pageDiffSummary parent per (prProdId, dumpDate, pageId),
-    // collecting each row's element as a pageDiffDetail child.
+    // Group rows into one pageDiffSummary parent per (prProdId, dumpDate, dumpTime, pageId) —
+    // the same page can be dumped more than once a day, each dump time getting its own summary.
     const groups = new Map<string, { summary: Record<string, any>; details: Record<string, any>[] }>();
     for (const { summary, detail } of rows) {
-      const key = `${summary.prProdId}|${summary.dumpDate}|${summary.pageId}`;
+      const key = `${summary.prProdId}|${summary.dumpDate}|${summary.dumpTime}|${summary.pageId}`;
       const group = groups.get(key);
       if (group) {
         group.details.push(detail);
@@ -198,6 +252,7 @@ const uploadCsv = async (req: Request, res: Response): Promise<any> => {
           and(
             eq(pageDiffSummary.prProdId, summary.prProdId),
             eq(pageDiffSummary.dumpDate, summary.dumpDate),
+            eq(pageDiffSummary.dumpTime, summary.dumpTime),
             eq(pageDiffSummary.pageId, summary.pageId)
           )
         );
@@ -281,4 +336,54 @@ const getCsvData = async (req: Request, res: Response): Promise<any> => {
   }
 };
 
-export { uploadCsv, getCsvData };
+// Upload Edition master
+const uploadEditionMaster = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded or invalid file type" });
+    }
+
+    const rows: Record<string, any>[] = [];
+    const separator = detectSeparator(req.file.buffer);
+    const stream = Readable.from(req.file.buffer);
+
+    await new Promise<void>((resolve, reject) => {
+      stream
+        .pipe(csv({ separator }))
+        .on("data", (row) => {
+          const edition = mapEditionMasterRow(row as Record<string, string>);
+          if (!edition.object || !edition.edition) return; // required fields missing
+          rows.push(edition);
+        })
+        .on("end", () => {
+          resolve();
+        })
+        .on("error", (error) => {
+          reject(error);
+        });
+    });
+
+    if (rows.length === 0) {
+      return res.status(400).json({ error: "CSV file is empty or contains no valid rows" });
+    }
+
+    const BATCH_SIZE = 1000;
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+      const batch = rows.slice(i, i + BATCH_SIZE);
+      await db.insert(editionMaster).values(batch as any);
+    }
+
+    return res.status(200).json({
+      message: "Edition master CSV parsed and data saved to database successfully",
+      rowsUploaded: rows.length,
+    });
+  } catch (err) {
+    console.error("Error in uploadEditionMaster:", err);
+    return res.status(500).json({
+      error: "An error occurred while uploading and parsing the edition master CSV file",
+      details: err instanceof Error ? err.message : String(err),
+    });
+  }
+};
+
+export { uploadCsv, uploadEditionMaster, getCsvData };

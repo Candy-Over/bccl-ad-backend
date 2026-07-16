@@ -13,6 +13,16 @@ CREATE TABLE `csv_data` (
 	CONSTRAINT `csv_data_id` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
+CREATE TABLE `edition_master` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`object` varchar(50) NOT NULL,
+	`edition` varchar(50) NOT NULL,
+	`edition_long_name` varchar(255),
+	`city` varchar(100),
+	`publication` varchar(50),
+	CONSTRAINT `edition_master_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
 CREATE TABLE `page_diff_detail` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`summary_id` int NOT NULL,
@@ -31,9 +41,11 @@ CREATE TABLE `page_diff_detail` (
 CREATE TABLE `page_diff_summary` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`prprod_id` int NOT NULL,
-	`prprod_name` varchar(50) NOT NULL,
+	`cap` varchar(50) NOT NULL,
+	`mp` varchar(50) NOT NULL,
 	`prprod_dump` int NOT NULL,
 	`dump_date` date NOT NULL,
+	`dump_time` time NOT NULL,
 	`page_id` int NOT NULL,
 	`page_name` varchar(100) NOT NULL,
 	`page_no` int NOT NULL,
@@ -44,9 +56,9 @@ CREATE TABLE `page_diff_summary` (
 	`makeup_flag` int DEFAULT 0,
 	`created_at` timestamp NOT NULL DEFAULT (now()),
 	CONSTRAINT `page_diff_summary_id` PRIMARY KEY(`id`),
-	CONSTRAINT `page_diff_summary_unique` UNIQUE(`prprod_id`,`dump_date`,`page_id`)
+	CONSTRAINT `page_diff_summary_unique` UNIQUE(`prprod_id`,`dump_date`,`dump_time`,`page_id`)
 );
 --> statement-breakpoint
 ALTER TABLE `page_diff_detail` ADD CONSTRAINT `page_diff_detail_summary_id_page_diff_summary_id_fk` FOREIGN KEY (`summary_id`) REFERENCES `page_diff_summary`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX `page_diff_detail_summary_idx` ON `page_diff_detail` (`summary_id`,`dump_time`,`element_code`);--> statement-breakpoint
-CREATE INDEX `page_diff_summary_search_idx` ON `page_diff_summary` (`dump_date`,`prprod_name`,`page_id`);
+CREATE INDEX `page_diff_summary_search_idx` ON `page_diff_summary` (`dump_date`,`dump_time`,`cap`,`page_id`);
