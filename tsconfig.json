@@ -37,6 +37,8 @@
     "skipLibCheck": true,
   },
   "exclude": [
-    "drizzle.config.ts"
+    "drizzle.config.ts",
+    "node_modules",
+    "dist"
   ]
 }
