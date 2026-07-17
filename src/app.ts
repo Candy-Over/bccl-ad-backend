@@ -8,10 +8,14 @@ import csvRouter from "./routes/csv.route.js";
 import globalErrorHandler from "./utils/globalErrorHandler.js";
 import dumpList from "./routes/dum-list.route.js";
 import editionMaster from "./routes/edition-master.route.js";
+import cors from "cors";
 
 const app = express();
 const PORT = process.env.PORT || 8000
-// app.use(cors());
+app.use(cors({
+    origin: ['http://localhost:5173'],
+    credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
