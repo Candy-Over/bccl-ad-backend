@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { and, count, eq, asc, desc, like } from "drizzle-orm";
 import { db } from "../db/db.js";
-import { pageDiffDetail, pageDiffSummary } from "../db/schema/index.js";
+import { editionMaster, pageDiffDetail, pageDiffSummary } from "../db/schema/index.js";
 
 const getPageDiffSummery = async (
   req: Request,
@@ -26,9 +26,14 @@ const getPageDiffSummery = async (
     if (cap) conditions.push(like(pageDiffSummary.cap, `%${cap}%`));
     if (date) conditions.push(eq(pageDiffSummary.dumpDate, date as string));
     if (time) conditions.push(eq(pageDiffSummary.dumpTime, time as string));
-    if (pageName) conditions.push(like(pageDiffSummary.pageName, `%${pageName}%` as string));
+    if (pageName)
+      conditions.push(
+        like(pageDiffSummary.pageName, `%${pageName}%` as string),
+      );
     if (pageId && !Number.isNaN(parseInt(pageId as string, 10))) {
-      conditions.push(eq(pageDiffSummary.pageId, parseInt(pageId as string, 10)));
+      conditions.push(
+        eq(pageDiffSummary.pageId, parseInt(pageId as string, 10)),
+      );
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -98,4 +103,61 @@ const getDetails = async (req: Request, res: Response) => {
   }
 };
 
-export { getPageDiffSummery, getDetails };
+const getEditionDumTotal = async (req: Request, res: Response) => {
+  try {
+    const { date, city, edition } = req.query;
+
+    if (!date || !city || !edition) {
+      return res.status(400).json({
+        msg: "date, city and edition are required query parameters",
+      });
+    }
+
+    // Resolve the edition (city + edition) against editionMaster first.
+    const [editionRow] = await db
+      .select({ edition: editionMaster.edition })
+      .from(editionMaster)
+      .where(
+        and(
+          eq(editionMaster.city, city as string),
+          eq(editionMaster.edition, edition as string),
+        ),
+      );
+
+    if (!editionRow) {
+      return res.status(404).json({
+        msg: "No matching edition found for the given city and edition",
+      });
+    }
+
+    // editionMaster.edition matches pageDiffSummary.cap.
+    const data = await db
+      .select()
+      .from(pageDiffSummary)
+      .where(
+        and(
+          eq(pageDiffSummary.dumpDate, date as string),
+          eq(pageDiffSummary.cap, editionRow.edition),
+        ),
+      )
+      .orderBy(asc(pageDiffSummary.pageNo));
+
+    return res.status(200).json({
+      msg: "List fetched",
+      data: {
+        cap: editionRow.edition,
+        total: data.length,
+        data,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching detail list:", error);
+
+    return res.status(500).json({
+      msg: "Failed to fetch detail list",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+export { getPageDiffSummery, getEditionDumTotal, getDetails };
