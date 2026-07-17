@@ -202,7 +202,7 @@ const uploadCsv = async (req: Request, res: Response): Promise<any> => {
       return res.status(400).json({ error: "No file uploaded or invalid file type" });
     }
 
-    const rows: Array<{ summary: Record<string, any>; detail: Record<string, any> }> = [];
+    const rows: Array<{ summary: Record<string, any>; detail: Record<string, any>; hasElement: boolean }> = [];
 
     const separator = detectSeparator(req.file.buffer);
     const stream = Readable.from(req.file.buffer);
@@ -211,9 +211,7 @@ const uploadCsv = async (req: Request, res: Response): Promise<any> => {
       stream
         .pipe(csv({ separator }))
         .on("data", (row) => {
-          const { summary, detail, hasElement } = mapRow(row as Record<string, string>);
-          if (!hasElement) return; // no element to store on this row
-          rows.push({ summary, detail });
+          rows.push(mapRow(row as Record<string, string>));
         })
         .on("end", () => {
           resolve();
@@ -230,13 +228,22 @@ const uploadCsv = async (req: Request, res: Response): Promise<any> => {
     // Group rows into one pageDiffSummary parent per (prProdId, dumpDate, dumpTime, pageId) —
     // the same page can be dumped more than once a day, each dump time getting its own summary.
     const groups = new Map<string, { summary: Record<string, any>; details: Record<string, any>[] }>();
-    for (const { summary, detail } of rows) {
+    for (const { summary, detail, hasElement } of rows) {
       const key = `${summary.prProdId}|${summary.dumpDate}|${summary.dumpTime}|${summary.pageId}`;
       const group = groups.get(key);
-      if (group) {
-        group.details.push(detail);
+
+      if (!group) {
+        groups.set(key, { summary, details: hasElement ? [detail] : [] });
       } else {
-        groups.set(key, { summary, details: [detail] });
+        if (!hasElement) {
+          // The blank-Element row is the page-level summary line — it carries the real
+          // diffFreeArea/diffElements/makeUpFlag totals, which every elemented row just
+          // repeats as 0. Let it override whatever the group started with.
+          Object.assign(group.summary, summary);
+        }
+        if (hasElement) {
+          group.details.push(detail);
+        }
       }
     }
 
