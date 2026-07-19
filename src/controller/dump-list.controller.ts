@@ -115,7 +115,8 @@ const getEditionDumTotal = async (req: Request, res: Response) => {
 
     // Resolve the edition (city + edition) against editionMaster first.
     const [editionRow] = await db
-      .select({ edition: editionMaster.edition })
+      // .select({ edition: editionMaster.edition })
+      .select()
       .from(editionMaster)
       .where(
         and(

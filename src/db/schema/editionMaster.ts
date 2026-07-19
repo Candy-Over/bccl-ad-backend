@@ -6,5 +6,6 @@ export const editionMaster = mysqlTable("edition_master", {
     edition: varchar("edition", { length: 50 }).notNull(),
     editionLongName: varchar("edition_long_name", { length: 255 }),
     city: varchar("city", { length: 100 }),
+    status: varchar("status", {length: 10}),
     publication: varchar("publication", { length: 50 }),
 });

@@ -5,7 +5,7 @@ const dumpList = Router();
 
 // Route to get paginated CSV data
 dumpList.get("/", getPageDiffSummery);
-dumpList.get("/edition-dum-total", getEditionDumTotal)
+dumpList.get("/edition-dump-total", getEditionDumTotal);
 dumpList.get("/details/:id", getDetails);
 
 export default dumpList;

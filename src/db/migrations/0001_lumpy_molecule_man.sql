@@ -1,0 +1,1 @@
+ALTER TABLE `edition_master` ADD `status` varchar(10);

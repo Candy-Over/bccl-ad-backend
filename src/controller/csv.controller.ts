@@ -37,6 +37,7 @@ const EDITION_MASTER_FIELDS: Record<string, string> = {
   edition: "edition",
   editionlongname: "editionLongName",
   city: "city",
+  status: "status",
   publication: "publication",
 };
 
