@@ -141,7 +141,7 @@ const getEditionDumTotal = async (req: Request, res: Response) => {
           eq(pageDiffSummary.cap, editionRow.edition),
         ),
       )
-      .orderBy(asc(pageDiffSummary.pageNo));
+      .orderBy(asc(pageDiffSummary.dumpTime));
 
     return res.status(200).json({
       msg: "List fetched",

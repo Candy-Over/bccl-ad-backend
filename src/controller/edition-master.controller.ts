@@ -38,7 +38,7 @@ const cityList = async (req: Request, res: Response): Promise<any> => {
   try {
     // Get paginated summary rows
     const data = await db
-      .selectDistinct()
+      .selectDistinct({city: editionMaster.city})
       .from(editionMaster)
       .orderBy(asc(editionMaster.city));
 
