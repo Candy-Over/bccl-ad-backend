@@ -351,7 +351,7 @@ const uploadEditionMaster = async (req: Request, res: Response): Promise<any> =>
       return res.status(400).json({ error: "No file uploaded or invalid file type" });
     }
 
-    const rows: Record<string, any>[] = [];
+    const parsedRows: Record<string, any>[] = [];
     const separator = detectSeparator(req.file.buffer);
     const stream = Readable.from(req.file.buffer);
 
@@ -361,7 +361,7 @@ const uploadEditionMaster = async (req: Request, res: Response): Promise<any> =>
         .on("data", (row) => {
           const edition = mapEditionMasterRow(row as Record<string, string>);
           if (!edition.object || !edition.edition) return; // required fields missing
-          rows.push(edition);
+          parsedRows.push(edition);
         })
         .on("end", () => {
           resolve();
@@ -371,19 +371,46 @@ const uploadEditionMaster = async (req: Request, res: Response): Promise<any> =>
         });
     });
 
-    if (rows.length === 0) {
+    if (parsedRows.length === 0) {
       return res.status(400).json({ error: "CSV file is empty or contains no valid rows" });
     }
 
+    // "edition" is the natural key for a row (it's what gets matched against
+    // pageDiffSummary.cap elsewhere) — keep only the last occurrence per edition so a
+    // CSV with repeated rows, or the same CSV uploaded twice, doesn't create duplicates.
+    const rowsByEdition = new Map<string, Record<string, any>>();
+    for (const row of parsedRows) {
+      rowsByEdition.set(row.edition, row);
+    }
+
+    const existing = await db
+      .select({ id: editionMaster.id, edition: editionMaster.edition })
+      .from(editionMaster);
+    const existingIdByEdition = new Map(existing.map((row) => [row.edition, row.id]));
+
+    const toInsert: Record<string, any>[] = [];
+    let updated = 0;
+
+    for (const row of rowsByEdition.values()) {
+      const existingId = existingIdByEdition.get(row.edition);
+      if (existingId) {
+        await db.update(editionMaster).set(row).where(eq(editionMaster.id, existingId));
+        updated++;
+      } else {
+        toInsert.push(row);
+      }
+    }
+
     const BATCH_SIZE = 1000;
-    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-      const batch = rows.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
+      const batch = toInsert.slice(i, i + BATCH_SIZE);
       await db.insert(editionMaster).values(batch as any);
     }
 
     return res.status(200).json({
       message: "Edition master CSV parsed and data saved to database successfully",
-      rowsUploaded: rows.length,
+      inserted: toInsert.length,
+      updated,
     });
   } catch (err) {
     console.error("Error in uploadEditionMaster:", err);
