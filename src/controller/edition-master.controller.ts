@@ -1,34 +1,64 @@
 import type { Request, Response } from "express";
-import { and, count, eq, asc, like } from "drizzle-orm";
+import { and, count, eq, asc, like, or } from "drizzle-orm";
 import { db } from "../db/db.js";
 import { editionMaster } from "../db/schema/index.js";
 
 const editionMasterList = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { cap } = req.query;
+    const { search } = req.query;
 
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
-    const condition = [];
-    if (cap) condition.push(like(editionMaster.edition, `%${cap}%`));
-    const whereClause = condition.length > 0 ? and(...condition) : undefined;
 
-    // Get paginated summary rows
+    if (page < 1 || limit < 1) {
+      return res
+        .status(400)
+        .json({ error: "Page and limit parameters must be positive integers" });
+    }
+
+    const offset = (page - 1) * limit;
+
+    const conditions = [];
+    if (search) {
+      conditions.push(
+        or(
+          like(editionMaster.edition, `%${search}%`),
+          like(editionMaster.editionLongName, `%${search}%`),
+          like(editionMaster.city, `%${search}%`),
+          like(editionMaster.publication, `%${search}%`),
+        ),
+      );
+    }
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
     const data = await db
-      .select({ cap: editionMaster.edition })
+      .select()
+      .from(editionMaster)
+      .where(whereClause)
+      .orderBy(asc(editionMaster.city), asc(editionMaster.edition))
+      .limit(limit)
+      .offset(offset);
+
+    const [countResult] = await db
+      .select({ value: count() })
       .from(editionMaster)
       .where(whereClause);
+    const total = countResult?.value || 0;
 
     return res.status(200).json({
       msg: "List",
       data: {
         data,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (err) {
-    console.error("Error in getCsvData:", err);
+    console.error("Error in editionMasterList:", err);
     return res.status(500).json({
-      error: "An error occurred while fetching the CSV data",
+      error: "An error occurred while fetching the edition master list",
       details: err instanceof Error ? err.message : String(err),
     });
   }
