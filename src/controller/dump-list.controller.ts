@@ -161,4 +161,82 @@ const getEditionDumTotal = async (req: Request, res: Response) => {
   }
 };
 
-export { getPageDiffSummery, getEditionDumTotal, getDetails };
+// One group per cap/edition for the given date, each carrying its own total
+// and full row list — replaces client-side grouping that previously fetched
+// up to 500 raw rows and joined editionMaster in the browser.
+const getEditionSummaryByDate = async (req: Request, res: Response) => {
+  try {
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({
+        msg: "date is a required query parameter",
+      });
+    }
+
+    const summaryRows = await db
+      .select()
+      .from(pageDiffSummary)
+      .where(eq(pageDiffSummary.dumpDate, date as string))
+      .orderBy(asc(pageDiffSummary.cap), asc(pageDiffSummary.dumpTime));
+
+    const editionRows = await db.select().from(editionMaster);
+    const editionByCap = new Map(editionRows.map((row) => [row.edition, row]));
+
+    const groups = new Map<
+      string,
+      {
+        cap: string;
+        editionLongName: string | null;
+        city: string | null;
+        status: string | null;
+        publication: string | null;
+        total: number;
+        pages: (typeof summaryRows)[number][];
+      }
+    >();
+
+    for (const row of summaryRows) {
+      const cap = row.cap || "Unknown";
+
+      if (!groups.has(cap)) {
+        const info = editionByCap.get(cap);
+        groups.set(cap, {
+          cap,
+          editionLongName: info?.editionLongName ?? null,
+          city: info?.city ?? null,
+          status: info?.status ?? null,
+          publication: info?.publication ?? null,
+          total: 0,
+          pages: [],
+        });
+      }
+
+      const group = groups.get(cap)!;
+      group.total += 1;
+      group.pages.push(row);
+    }
+
+    return res.status(200).json({
+      msg: "Edition summary fetched",
+      data: {
+        date,
+        total: summaryRows.length,
+        groups: Array.from(groups.values()),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching edition summary:", error);
+    return res.status(500).json({
+      msg: "Failed to fetch edition summary",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+export {
+  getPageDiffSummery,
+  getEditionDumTotal,
+  getDetails,
+  getEditionSummaryByDate,
+};
