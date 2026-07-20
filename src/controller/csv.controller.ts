@@ -75,6 +75,7 @@ type MappedRow = {
   summary: Record<string, any>;
   detail: Record<string, any>;
   hasElement: boolean;
+  hasRequiredIds: boolean;
 };
 
 // The CSV's "Element" column packs a code and a name together, e.g.
@@ -100,6 +101,8 @@ const mapRow = (row: Record<string, string>): MappedRow => {
   let elementRaw = "";
   let dumpTimeRaw = "";
   let prProdNameRaw = "";
+  let pageIdRaw = "";
+  let ppIdRaw = "";
 
   for (const [header, rawValue] of Object.entries(row)) {
     const key = normalizeKey(header);
@@ -118,6 +121,14 @@ const mapRow = (row: Record<string, string>): MappedRow => {
     if (key === "prprodname") {
       prProdNameRaw = value;
       continue;
+    }
+
+    if (key === "pageid") {
+      pageIdRaw = value;
+    }
+
+    if (key === "ppid") {
+      ppIdRaw = value;
     }
 
     const summaryField = SUMMARY_FIELDS[key];
@@ -155,7 +166,9 @@ const mapRow = (row: Record<string, string>): MappedRow => {
     Object.assign(detail, splitElement(elementRaw));
   }
 
-  return { summary, detail, hasElement };
+  const hasRequiredIds = pageIdRaw.length > 0 && ppIdRaw.length > 0;
+
+  return { summary, detail, hasElement, hasRequiredIds };
 };
 
 const mapEditionMasterRow = (row: Record<string, string>): Record<string, any> => {
@@ -204,6 +217,7 @@ const uploadCsv = async (req: Request, res: Response): Promise<any> => {
     }
 
     const rows: Array<{ summary: Record<string, any>; detail: Record<string, any>; hasElement: boolean }> = [];
+    let skippedRows = 0;
 
     const separator = detectSeparator(req.file.buffer);
     const stream = Readable.from(req.file.buffer);
@@ -212,7 +226,14 @@ const uploadCsv = async (req: Request, res: Response): Promise<any> => {
       stream
         .pipe(csv({ separator }))
         .on("data", (row) => {
-          rows.push(mapRow(row as Record<string, string>));
+          const mapped = mapRow(row as Record<string, string>);
+          // Rows without a PageId or PpId can't be attributed to a page — skip them rather
+          // than letting them in with a bogus 0 id, which corrupted summary/detail grouping.
+          if (!mapped.hasRequiredIds) {
+            skippedRows++;
+            return;
+          }
+          rows.push(mapped);
         })
         .on("end", () => {
           resolve();
@@ -294,6 +315,7 @@ const uploadCsv = async (req: Request, res: Response): Promise<any> => {
       message: "CSV parsed and data saved to database successfully",
       summariesProcessed,
       detailsInserted,
+      skippedRows,
     });
   } catch (err) {
     console.error("Error in uploadCsv:", err);
