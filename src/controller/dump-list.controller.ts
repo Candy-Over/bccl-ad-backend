@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { and, count, eq, asc, desc, like } from "drizzle-orm";
+import { and, count, eq, asc, desc, like, inArray } from "drizzle-orm";
 import { db } from "../db/db.js";
 import { editionMaster, pageDiffDetail, pageDiffSummary } from "../db/schema/index.js";
 
@@ -95,6 +95,48 @@ const getDetails = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("Error fetching detail list:", error);
+
+    return res.status(500).json({
+      msg: "Failed to fetch detail list",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+// Fetches detail rows for many summary ids in one round trip — a dump detail
+// page renders one card per page, and fetching each card's details separately
+// was firing one request per page instead of one for the whole dump.
+const getDetailsBulk = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const ids = String(req.query.ids || "")
+      .split(",")
+      .map((id) => Number(id.trim()))
+      .filter((id) => !Number.isNaN(id));
+
+    if (ids.length === 0) {
+      return res.status(400).json({
+        msg: "ids is a required query parameter (comma-separated summary ids)",
+      });
+    }
+
+    const rows = await db
+      .select()
+      .from(pageDiffDetail)
+      .where(inArray(pageDiffDetail.summaryId, ids))
+      .orderBy(asc(pageDiffDetail.summaryId), asc(pageDiffDetail.id));
+
+    const data: Record<number, typeof rows> = {};
+    for (const id of ids) data[id] = [];
+    for (const row of rows) {
+      data[row.summaryId]!.push(row);
+    }
+
+    return res.status(200).json({
+      msg: "Detail lists fetched successfully",
+      data,
+    });
+  } catch (error) {
+    console.error("Error fetching bulk detail list:", error);
 
     return res.status(500).json({
       msg: "Failed to fetch detail list",
@@ -253,5 +295,6 @@ export {
   getPageDiffSummery,
   getEditionDumTotal,
   getDetails,
+  getDetailsBulk,
   getEditionSummaryByDate,
 };
