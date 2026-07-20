@@ -143,11 +143,16 @@ const getEditionDumTotal = async (req: Request, res: Response) => {
       )
       .orderBy(asc(pageDiffSummary.dumpTime));
 
+    // "Changed" is counted per dump event (distinct dumpTime), not per row —
+    // a single dump can touch multiple pages, which would otherwise inflate
+    // the count.
+    const total = new Set(data.map((row) => row.dumpTime)).size;
+
     return res.status(200).json({
       msg: "List fetched",
       data: {
         cap: editionRow.edition,
-        total: data.length,
+        total,
         data,
       },
     });
@@ -191,7 +196,7 @@ const getEditionSummaryByDate = async (req: Request, res: Response) => {
         city: string | null;
         status: string | null;
         publication: string | null;
-        total: number;
+        dumpTimes: Set<string>;
         pages: (typeof summaryRows)[number][];
       }
     >();
@@ -207,22 +212,32 @@ const getEditionSummaryByDate = async (req: Request, res: Response) => {
           city: info?.city ?? null,
           status: info?.status ?? null,
           publication: info?.publication ?? null,
-          total: 0,
+          dumpTimes: new Set(),
           pages: [],
         });
       }
 
       const group = groups.get(cap)!;
-      group.total += 1;
+      group.dumpTimes.add(row.dumpTime);
       group.pages.push(row);
     }
+
+    // "Changed" is counted per dump event (distinct dumpTime), not per row —
+    // a single dump can touch multiple pages, which would otherwise inflate
+    // the count.
+    const groupList = Array.from(groups.values()).map(
+      ({ dumpTimes, ...group }) => ({
+        ...group,
+        total: dumpTimes.size,
+      }),
+    );
 
     return res.status(200).json({
       msg: "Edition summary fetched",
       data: {
         date,
         total: summaryRows.length,
-        groups: Array.from(groups.values()),
+        groups: groupList,
       },
     });
   } catch (error) {
