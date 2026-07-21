@@ -1,0 +1,1 @@
+ALTER TABLE `page_diff_summary` ADD `edition_date` date;

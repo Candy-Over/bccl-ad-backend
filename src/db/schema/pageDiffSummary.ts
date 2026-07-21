@@ -20,6 +20,12 @@ export const pageDiffSummary = mysqlTable(
     mp: varchar("mp", { length: 50 }).notNull(),
     prProdDump: int("prprod_dump").notNull(),
 
+    // Parsed from the upload's file name (e.g. "TOIM-20260716" -> "2026-07-16"),
+    // not the CSV's own Dump Date column — the file can be dumped on a different
+    // calendar day than the edition it's produced for. Nullable because rows
+    // uploaded before this column existed have no file name on record to derive it from.
+    editionDate: date("edition_date", { mode: "string" }),
+
     dumpDate: date("dump_date", { mode: "string" }).notNull(),
     dumpTime: time("dump_time").notNull(),
 

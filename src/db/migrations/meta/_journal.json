@@ -15,6 +15,13 @@
       "when": 1784436461216,
       "tag": "0001_lumpy_molecule_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1784609121292,
+      "tag": "0002_wooden_frank_castle",
+      "breakpoints": true
     }
   ]
 }

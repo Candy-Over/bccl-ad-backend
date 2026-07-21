@@ -67,6 +67,15 @@ const normalizeKey = (header: string): string =>
 const toIsoDate = (raw: string): string =>
   /^\d{8}$/.test(raw) ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}` : raw;
 
+// The upload's file name carries the edition date, distinct from the CSV's own
+// Dump Date column, e.g. "CCI.NP_ENG.TOIM-20260716.0731.20260715224402.csv" ->
+// the "TOIM-20260716" segment's trailing 8 digits -> "2026-07-16".
+const extractEditionDate = (fileName: string): string | null => {
+  const capSegment = fileName.split(".")[2] ?? "";
+  const match = capSegment.match(/(\d{8})$/);
+  return match ? toIsoDate(match[1]!) : null;
+};
+
 // "231445" -> "23:14:45"
 const toHmsTime = (raw: string): string =>
   /^\d{6}$/.test(raw) ? `${raw.slice(0, 2)}:${raw.slice(2, 4)}:${raw.slice(4, 6)}` : raw;
@@ -216,6 +225,13 @@ const uploadCsv = async (req: Request, res: Response): Promise<any> => {
       return res.status(400).json({ error: "No file uploaded or invalid file type" });
     }
 
+    const editionDate = extractEditionDate(req.file.originalname);
+    if (!editionDate) {
+      return res.status(400).json({
+        error: "Could not determine edition date from the file name",
+      });
+    }
+
     const rows: Array<{ summary: Record<string, any>; detail: Record<string, any>; hasElement: boolean }> = [];
     let skippedRows = 0;
 
@@ -233,6 +249,7 @@ const uploadCsv = async (req: Request, res: Response): Promise<any> => {
             skippedRows++;
             return;
           }
+          mapped.summary.editionDate = editionDate;
           rows.push(mapped);
         })
         .on("end", () => {
