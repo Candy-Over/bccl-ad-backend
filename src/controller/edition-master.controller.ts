@@ -95,8 +95,18 @@ const editionForCity = async (req: Request, res: Response): Promise<any> => {
         msg: "No city is provided"
       })
     }
-  
-    // Get paginated summary rows
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 100;
+
+    if (page < 1 || limit < 1) {
+      return res
+        .status(400)
+        .json({ error: "Page and limit parameters must be positive integers" });
+    }
+
+    const offset = (page - 1) * limit;
+
     const data = await db
       .select({
         edition: editionMaster.edition,
@@ -105,13 +115,25 @@ const editionForCity = async (req: Request, res: Response): Promise<any> => {
         status: editionMaster.status
       })
       .from(editionMaster)
+      .where(eq(editionMaster.city, city as string))
+      .orderBy(asc(editionMaster.edition))
+      .limit(limit)
+      .offset(offset);
+
+    const [countResult] = await db
+      .select({ value: count() })
+      .from(editionMaster)
       .where(eq(editionMaster.city, city as string));
+    const total = countResult?.value || 0;
 
     return res.status(200).json({
       msg: "List",
       data: {
-        total: data.length,
+        total,
         data,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (err) {

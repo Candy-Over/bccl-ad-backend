@@ -149,10 +149,19 @@ const getEditionDumTotal = async (req: Request, res: Response) => {
   try {
     const { date, city, edition } = req.query;
 
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+
     if (!date || !city || !edition) {
       return res.status(400).json({
         msg: "date, city and edition are required query parameters",
       });
+    }
+
+    if (page < 1 || limit < 1) {
+      return res
+        .status(400)
+        .json({ error: "Page and limit parameters must be positive integers" });
     }
 
     // Resolve the edition (city + edition) against editionMaster first.
@@ -187,15 +196,23 @@ const getEditionDumTotal = async (req: Request, res: Response) => {
 
     // "Changed" is counted per dump event (distinct dumpTime), not per row —
     // a single dump can touch multiple pages, which would otherwise inflate
-    // the count.
-    const total = new Set(data.map((row) => row.dumpTime)).size;
+    // the count. Paginate at the same granularity: a page covers a slice of
+    // dump events, carrying every row for the dump events on that page.
+    const dumpTimes = Array.from(new Set(data.map((row) => row.dumpTime))).sort();
+    const total = dumpTimes.length;
+    const offset = (page - 1) * limit;
+    const pageDumpTimes = new Set(dumpTimes.slice(offset, offset + limit));
+    const pageData = data.filter((row) => pageDumpTimes.has(row.dumpTime));
 
     return res.status(200).json({
       msg: "List fetched",
       data: {
         cap: editionRow.edition,
         total,
-        data,
+        data: pageData,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (error) {
@@ -213,12 +230,21 @@ const getEditionDumTotal = async (req: Request, res: Response) => {
 // up to 500 raw rows and joined editionMaster in the browser.
 const getEditionSummaryByDate = async (req: Request, res: Response) => {
   try {
-    const { date } = req.query;
+    const { date, city, cap } = req.query;
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
 
     if (!date) {
       return res.status(400).json({
         msg: "date is a required query parameter",
       });
+    }
+
+    if (page < 1 || limit < 1) {
+      return res
+        .status(400)
+        .json({ error: "Page and limit parameters must be positive integers" });
     }
 
     const summaryRows = await db
@@ -267,19 +293,32 @@ const getEditionSummaryByDate = async (req: Request, res: Response) => {
     // "Changed" is counted per dump event (distinct dumpTime), not per row —
     // a single dump can touch multiple pages, which would otherwise inflate
     // the count.
-    const groupList = Array.from(groups.values()).map(
+    let groupList = Array.from(groups.values()).map(
       ({ dumpTimes, ...group }) => ({
         ...group,
         total: dumpTimes.size,
       }),
     );
 
+    // city/cap narrow which editions are in the list — applied before
+    // pagination so a caller after one specific cap (e.g. the dump detail
+    // page) always gets it regardless of what page it'd otherwise fall on.
+    if (city) groupList = groupList.filter((group) => group.city === city);
+    if (cap) groupList = groupList.filter((group) => group.cap === cap);
+
+    const total = groupList.length;
+    const offset = (page - 1) * limit;
+    const pagedGroups = groupList.slice(offset, offset + limit);
+
     return res.status(200).json({
       msg: "Edition summary fetched",
       data: {
         date,
-        total: summaryRows.length,
-        groups: groupList,
+        total,
+        groups: pagedGroups,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (error) {
