@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { and, count, eq, asc, desc, like, inArray } from "drizzle-orm";
+import { and, count, eq, asc, desc, like, inArray, gte, lte } from "drizzle-orm";
 import { db } from "../db/db.js";
 import { editionMaster, pageDiffDetail, pageDiffSummary } from "../db/schema/index.js";
 
@@ -149,19 +149,10 @@ const getEditionDumTotal = async (req: Request, res: Response) => {
   try {
     const { date, city, edition } = req.query;
 
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
-
     if (!date || !city || !edition) {
       return res.status(400).json({
         msg: "date, city and edition are required query parameters",
       });
-    }
-
-    if (page < 1 || limit < 1) {
-      return res
-        .status(400)
-        .json({ error: "Page and limit parameters must be positive integers" });
     }
 
     // Resolve the edition (city + edition) against editionMaster first.
@@ -196,23 +187,15 @@ const getEditionDumTotal = async (req: Request, res: Response) => {
 
     // "Changed" is counted per dump event (distinct dumpTime), not per row —
     // a single dump can touch multiple pages, which would otherwise inflate
-    // the count. Paginate at the same granularity: a page covers a slice of
-    // dump events, carrying every row for the dump events on that page.
-    const dumpTimes = Array.from(new Set(data.map((row) => row.dumpTime))).sort();
-    const total = dumpTimes.length;
-    const offset = (page - 1) * limit;
-    const pageDumpTimes = new Set(dumpTimes.slice(offset, offset + limit));
-    const pageData = data.filter((row) => pageDumpTimes.has(row.dumpTime));
+    // the count.
+    const total = new Set(data.map((row) => row.dumpTime)).size;
 
     return res.status(200).json({
       msg: "List fetched",
       data: {
         cap: editionRow.edition,
         total,
-        data: pageData,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
+        data,
       },
     });
   } catch (error) {
@@ -330,10 +313,120 @@ const getEditionSummaryByDate = async (req: Request, res: Response) => {
   }
 };
 
+// Report over a date range for a single edition — one entry per editionDate
+// in range that has data, each carrying its own dump count and full row list
+// so the client can render a per-date accordion identical to the single-date
+// edition view, without a second request per date.
+const getEditionReport = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { edition, dateFrom, dateTo } = req.query;
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+
+    if (!edition || !dateFrom || !dateTo) {
+      return res.status(400).json({
+        msg: "edition, dateFrom and dateTo are required query parameters",
+      });
+    }
+
+    if (page < 1 || limit < 1) {
+      return res
+        .status(400)
+        .json({ error: "Page and limit parameters must be positive integers" });
+    }
+
+    // "edition" is a natural key on its own (see uploadEditionMaster) — no
+    // city needed to resolve it.
+    const [editionRow] = await db
+      .select()
+      .from(editionMaster)
+      .where(eq(editionMaster.edition, edition as string));
+
+    if (!editionRow) {
+      return res.status(404).json({
+        msg: "No matching edition found",
+      });
+    }
+
+    // editionMaster.edition matches pageDiffSummary.cap.
+    const rows = await db
+      .select()
+      .from(pageDiffSummary)
+      .where(
+        and(
+          eq(pageDiffSummary.cap, editionRow.edition),
+          gte(pageDiffSummary.editionDate, dateFrom as string),
+          lte(pageDiffSummary.editionDate, dateTo as string),
+        ),
+      )
+      .orderBy(asc(pageDiffSummary.editionDate), asc(pageDiffSummary.dumpTime));
+
+    const dateGroups = new Map<
+      string,
+      { date: string; dumpTimes: Set<string>; pages: (typeof rows)[number][] }
+    >();
+
+    for (const row of rows) {
+      // editionDate is nullable on older rows uploaded before it existed —
+      // exclude them from a report keyed by editionDate rather than grouping
+      // them under a misleading "Unknown" bucket.
+      if (!row.editionDate) continue;
+
+      let group = dateGroups.get(row.editionDate);
+      if (!group) {
+        group = { date: row.editionDate, dumpTimes: new Set(), pages: [] };
+        dateGroups.set(row.editionDate, group);
+      }
+
+      group.dumpTimes.add(row.dumpTime);
+      group.pages.push(row);
+    }
+
+    const dateList = Array.from(dateGroups.values())
+      .map(({ dumpTimes, ...group }) => ({ ...group, total: dumpTimes.size }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // "Changed" is counted per dump event (distinct dumpTime) — summing each
+    // date's own count keeps that consistent at the range level too.
+    const overallTotal = dateList.reduce((sum, group) => sum + group.total, 0);
+
+    const total = dateList.length;
+    const offset = (page - 1) * limit;
+    const pagedDates = dateList.slice(offset, offset + limit);
+
+    return res.status(200).json({
+      msg: "Edition report fetched",
+      data: {
+        cap: editionRow.edition,
+        editionLongName: editionRow.editionLongName,
+        city: editionRow.city,
+        publication: editionRow.publication,
+        status: editionRow.status,
+        dateFrom,
+        dateTo,
+        overallTotal,
+        dates: pagedDates,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching edition report:", error);
+    return res.status(500).json({
+      msg: "Failed to fetch edition report",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
 export {
   getPageDiffSummery,
   getEditionDumTotal,
   getDetails,
   getDetailsBulk,
   getEditionSummaryByDate,
+  getEditionReport,
 };
