@@ -188,7 +188,6 @@ const getEditionDumTotal = async (req: Request, res: Response) => {
       .from(pageDiffSummary)
       .where(
         and(
-          // eq(pageDiffSummary.dumpDate, date as string),
           eq(pageDiffSummary.editionDate, date as string),
           eq(pageDiffSummary.cap, editionRow.edition),
         ),
@@ -251,7 +250,6 @@ const getEditionSummaryByDate = async (req: Request, res: Response) => {
     const summaryRows = await db
       .select()
       .from(pageDiffSummary)
-      // .where(eq(pageDiffSummary.dumpDate, date as string))
       .where(eq(pageDiffSummary.editionDate, date as string))
       .orderBy(asc(pageDiffSummary.cap), asc(pageDiffSummary.dumpTime));
 
