@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { and, count, eq, asc, desc, like, inArray, gte, lte } from "drizzle-orm";
+import { and, count, eq, asc, like, inArray, gte, lte } from "drizzle-orm";
 import { db } from "../db/db.js";
 import { editionMaster, pageDiffDetail, pageDiffSummary } from "../db/schema/index.js";
 
@@ -43,7 +43,7 @@ const getPageDiffSummery = async (
       .select()
       .from(pageDiffSummary)
       .where(whereClause)
-      .orderBy(desc(pageDiffSummary.createdAt))
+      .orderBy(asc(pageDiffSummary.prProdDump))
       .limit(limit)
       .offset(offset);
 
@@ -183,7 +183,7 @@ const getEditionDumTotal = async (req: Request, res: Response) => {
           eq(pageDiffSummary.cap, editionRow.edition),
         ),
       )
-      .orderBy(asc(pageDiffSummary.dumpTime));
+      .orderBy(asc(pageDiffSummary.prProdDump));
 
     // "Changed" is counted per dump event (distinct dumpTime), not per row —
     // a single dump can touch multiple pages, which would otherwise inflate
@@ -234,7 +234,7 @@ const getEditionSummaryByDate = async (req: Request, res: Response) => {
       .select()
       .from(pageDiffSummary)
       .where(eq(pageDiffSummary.editionDate, date as string))
-      .orderBy(asc(pageDiffSummary.cap), asc(pageDiffSummary.dumpTime));
+      .orderBy(asc(pageDiffSummary.cap), asc(pageDiffSummary.prProdDump));
 
     const editionRows = await db.select().from(editionMaster);
     const editionByCap = new Map(editionRows.map((row) => [row.edition, row]));
@@ -360,7 +360,7 @@ const getEditionReport = async (req: Request, res: Response): Promise<any> => {
           lte(pageDiffSummary.editionDate, dateTo as string),
         ),
       )
-      .orderBy(asc(pageDiffSummary.editionDate), asc(pageDiffSummary.dumpTime));
+      .orderBy(asc(pageDiffSummary.editionDate), asc(pageDiffSummary.prProdDump));
 
     const dateGroups = new Map<
       string,
