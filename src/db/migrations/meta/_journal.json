@@ -22,6 +22,13 @@
       "when": 1784609121292,
       "tag": "0002_wooden_frank_castle",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1784703525433,
+      "tag": "0003_outstanding_ezekiel_stane",
+      "breakpoints": true
     }
   ]
 }

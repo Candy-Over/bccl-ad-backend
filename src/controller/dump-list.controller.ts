@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { and, count, eq, asc, like, inArray, gte, lte } from "drizzle-orm";
 import { db } from "../db/db.js";
-import { editionMaster, pageDiffDetail, pageDiffSummary } from "../db/schema/index.js";
+import { editionMaster, pageDiffDetail, pageDiffSummary, pageFeedback } from "../db/schema/index.js";
 
 const getPageDiffSummery = async (
   req: Request,
@@ -239,6 +239,18 @@ const getEditionSummaryByDate = async (req: Request, res: Response) => {
     const editionRows = await db.select().from(editionMaster);
     const editionByCap = new Map(editionRows.map((row) => [row.edition, row]));
 
+    // Attach each page's saved feedback (if any) so the dump detail page can
+    // pre-populate its feedback dropdown without a second round trip per page.
+    const feedbackRows = summaryRows.length
+      ? await db
+          .select()
+          .from(pageFeedback)
+          .where(inArray(pageFeedback.summaryId, summaryRows.map((row) => row.id)))
+      : [];
+    const feedbackBySummaryId = new Map(
+      feedbackRows.map((row) => [row.summaryId, row.masterFeedbackId]),
+    );
+
     const groups = new Map<
       string,
       {
@@ -248,7 +260,7 @@ const getEditionSummaryByDate = async (req: Request, res: Response) => {
         status: string | null;
         publication: string | null;
         dumpTimes: Set<string>;
-        pages: (typeof summaryRows)[number][];
+        pages: ((typeof summaryRows)[number] & { masterFeedbackId: number | null })[];
       }
     >();
 
@@ -270,7 +282,10 @@ const getEditionSummaryByDate = async (req: Request, res: Response) => {
 
       const group = groups.get(cap)!;
       group.dumpTimes.add(row.dumpTime);
-      group.pages.push(row);
+      group.pages.push({
+        ...row,
+        masterFeedbackId: feedbackBySummaryId.get(row.id) ?? null,
+      });
     }
 
     // "Changed" is counted per dump event (distinct dumpTime), not per row —
@@ -422,6 +437,72 @@ const getEditionReport = async (req: Request, res: Response): Promise<any> => {
   }
 };
 
+// Saves (or overwrites) the single master feedback selected for one page
+// within one dump — upsert keyed on summaryId since page_feedback is
+// unique on that column.
+const saveFeedback = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const summaryId = Number(req.body?.summaryId);
+    const masterFeedbackId = Number(req.body?.masterFeedbackId);
+
+    if (Number.isNaN(summaryId) || Number.isNaN(masterFeedbackId)) {
+      return res.status(400).json({
+        msg: "summaryId and masterFeedbackId are required and must be numbers",
+      });
+    }
+
+    const [existing] = await db
+      .select()
+      .from(pageFeedback)
+      .where(eq(pageFeedback.summaryId, summaryId));
+
+    if (existing) {
+      await db
+        .update(pageFeedback)
+        .set({ masterFeedbackId })
+        .where(eq(pageFeedback.summaryId, summaryId));
+    } else {
+      await db.insert(pageFeedback).values({ summaryId, masterFeedbackId });
+    }
+
+    return res.status(200).json({
+      msg: "Feedback saved",
+      data: { summaryId, masterFeedbackId },
+    });
+  } catch (error) {
+    console.error("Error saving feedback:", error);
+    return res.status(500).json({
+      msg: "Failed to save feedback",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+// Clears whatever feedback was saved for a page within a dump, letting a
+// user undo their selection instead of being stuck with the first pick.
+const removeFeedback = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const summaryId = Number(req.params.summaryId);
+
+    if (Number.isNaN(summaryId)) {
+      return res.status(400).json({ msg: "summaryId must be a number" });
+    }
+
+    await db.delete(pageFeedback).where(eq(pageFeedback.summaryId, summaryId));
+
+    return res.status(200).json({
+      msg: "Feedback removed",
+      data: { summaryId },
+    });
+  } catch (error) {
+    console.error("Error removing feedback:", error);
+    return res.status(500).json({
+      msg: "Failed to remove feedback",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
 export {
   getPageDiffSummery,
   getEditionDumTotal,
@@ -429,4 +510,6 @@ export {
   getDetailsBulk,
   getEditionSummaryByDate,
   getEditionReport,
+  saveFeedback,
+  removeFeedback,
 };

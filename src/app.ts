@@ -8,6 +8,7 @@ import csvRouter from "./routes/csv.route.js";
 import globalErrorHandler from "./utils/globalErrorHandler.js";
 import dumpList from "./routes/dum-list.route.js";
 import editionMaster from "./routes/edition-master.route.js";
+import masterFeedbackRouter from "./routes/master-feedback.route.js";
 import cors from "cors";
 
 const app = express();
@@ -26,6 +27,8 @@ app.use('/csv', csvRouter)
 app.use('/dump-list', dumpList)
 // edition master
 app.use("/edition-master", editionMaster);
+// master feedback
+app.use("/master-feedback", masterFeedbackRouter);
 
 // health check endpoint 
 app.get("/", (req: Request, res: Response) => {

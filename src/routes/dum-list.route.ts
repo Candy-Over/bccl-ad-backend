@@ -6,6 +6,8 @@ import {
   getEditionReport,
   getEditionSummaryByDate,
   getPageDiffSummery,
+  saveFeedback,
+  removeFeedback,
 } from "../controller/dump-list.controller.js";
 
 const dumpList = Router();
@@ -19,5 +21,7 @@ dumpList.get("/edition-report", getEditionReport);
 // captured as the :id param instead of reaching this handler.
 dumpList.get("/details/bulk", getDetailsBulk);
 dumpList.get("/details/:id", getDetails);
+dumpList.post("/page-feedback", saveFeedback);
+dumpList.delete("/page-feedback/:summaryId", removeFeedback);
 
 export default dumpList;
